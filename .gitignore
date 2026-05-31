@@ -1,0 +1,44 @@
+# --- Build Output ---
+build/
+*.o
+*.d
+*.elf
+*.hex
+*.bin
+*.map
+*.list
+*.su
+*.user
+
+# --- CubeMX ---
+mx.scratch
+*.ioc.bak
+
+# --- IDE / Editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# --- Python (PC_Host) ---
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+*.egg
+
+# --- Virtual Environment ---
+venv/
+.venv/
+env/
+.env/
+
+# --- Misc ---
+*.log
+*.tmp
