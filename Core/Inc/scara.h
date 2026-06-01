@@ -12,8 +12,8 @@
 #define PULLEY_RATIO           1       /* 直连 (无同步带) */
 #define STEPS_PER_JOINT_REV    (STEPS_PER_MOTOR_REV * PULLEY_RATIO)  /* 关节每圈脉冲 */
 
-#define ARM1_LENGTH_MM         150.0f  /* 大臂长度 mm */
-#define ARM2_LENGTH_MM         100.0f  /* 小臂长度 mm */
+#define ARM1_LENGTH_MM         110.0f  /* 主动臂 mm */
+#define ARM2_LENGTH_MM         220.0f  /* 从动臂 mm */
 
 /* ======================== 舵机 ======================== */
 #define SERVO_UP_CCR           52  /* 抬笔 PWM 占空比 (1.04ms @ 50Hz) */

@@ -9,7 +9,7 @@ def main():
     app.setStyle("Fusion")
     w = MainW()
     w.show()
-    w._refresh()
+    w._ref()
     sys.exit(app.exec())
 
 
