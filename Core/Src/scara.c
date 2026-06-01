@@ -144,8 +144,8 @@ void SCARA_Home(void)
     scara.motor1.current_position = 0;
     scara.motor2.current_position = 0;
 
-    motor_start(&scara.motor1, -50000, HOME_SPEED);
-    motor_start(&scara.motor2, -50000, HOME_SPEED);
+    motor_start(&scara.motor1, -2000, HOME_SPEED);
+    motor_start(&scara.motor2, -2000, HOME_SPEED);
 
     SCARA_SendResponse("OK HOME\r\n");
 }

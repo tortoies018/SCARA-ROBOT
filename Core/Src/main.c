@@ -131,7 +131,7 @@ int main(void)
             if (scara.home_m1_done && scara.home_m2_done)
             {
                 scara.home_approach_phase = 1;
-                SCARA_SetPosition(0, 0);
+                SCARA_SetPosition(DEG_TO_STEPS(90), DEG_TO_STEPS(90));
                 /* 后退一段距离 */
                 motor_start(&scara.motor1, HOME_BACKOFF_STEPS, HOME_SPEED);
                 motor_start(&scara.motor2, HOME_BACKOFF_STEPS, HOME_SPEED);
@@ -164,7 +164,7 @@ int main(void)
             }
             if (scara.home_m1_done && scara.home_m2_done)
             {
-                SCARA_SetPosition(0, 0);
+                SCARA_SetPosition(DEG_TO_STEPS(90), DEG_TO_STEPS(90));
                 scara.state = ROBOT_IDLE;
                 SCARA_SendResponse("RDY HOME DONE\r\n");
             }
