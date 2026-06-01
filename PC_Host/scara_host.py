@@ -621,6 +621,12 @@ class SCARAHost(QMainWindow):
         self.fk_result = QLabel("x: —  y: —")
         self.fk_result.setObjectName("resultLabel")
         form.addRow("", self.fk_result)
+        self.fk_spd = QSpinBox()
+        self.fk_spd.setRange(10, 720)
+        self.fk_spd.setValue(90)
+        self.fk_spd.setSingleStep(10)
+        self.fk_spd.setSuffix(" °/s")
+        form.addRow("速度:", self.fk_spd)
         self.fk_send_btn = QPushButton("运动 →")
         self.fk_send_btn.clicked.connect(self._fk_send)
         form.addRow("", self.fk_send_btn)
@@ -648,6 +654,12 @@ class SCARAHost(QMainWindow):
         self.ik_result = QLabel("θ₁: —  θ₂: —")
         self.ik_result.setObjectName("resultLabel")
         form.addRow("", self.ik_result)
+        self.ik_spd = QSpinBox()
+        self.ik_spd.setRange(10, 720)
+        self.ik_spd.setValue(90)
+        self.ik_spd.setSingleStep(10)
+        self.ik_spd.setSuffix(" °/s")
+        form.addRow("速度:", self.ik_spd)
         self.ik_send_btn = QPushButton("运动 →")
         self.ik_send_btn.clicked.connect(self._ik_send)
         form.addRow("", self.ik_send_btn)
@@ -688,14 +700,21 @@ class SCARAHost(QMainWindow):
         spd_row.setSpacing(6)
         spd_row.addWidget(QLabel("速度:"))
         self.speed_slider = QSlider(Qt.Orientation.Horizontal)
-        self.speed_slider.setRange(100, 20000)
-        self.speed_slider.setValue(2000)
+        self.speed_slider.setRange(10, 720)
+        self.speed_slider.setValue(90)
         spd_row.addWidget(self.speed_slider, 1)
-        self.speed_label = QLabel("2000")
+        self.speed_label = QLabel("90")
         self.speed_label.setStyleSheet(f"color: {ACCENT}; font-weight: 600; "
                                         "font-family: 'Consolas', monospace;")
         spd_row.addWidget(self.speed_label)
+        self.speed_label_suffix = QLabel("°/s")
+        self.speed_label_suffix.setStyleSheet(f"color: {TEXT_DIM};")
+        spd_row.addWidget(self.speed_label_suffix)
         self.speed_slider.valueChanged.connect(lambda v: self.speed_label.setText(str(v)))
+        self.speed_slider.sliderReleased.connect(self._on_speed_changed)
+        self._speed_debounce = QTimer()
+        self._speed_debounce.setSingleShot(True)
+        self._speed_debounce.timeout.connect(self._send_speed_to_firmware)
         sec.content_layout.addLayout(spd_row)
 
         stp_row = QHBoxLayout()
@@ -738,6 +757,15 @@ class SCARAHost(QMainWindow):
         self._poll_timer.timeout.connect(self._poll_serial)
         self._poll_timer.start(200)
 
+    def _on_speed_changed(self):
+        self._speed_debounce.start(150)
+
+    def _send_speed_to_firmware(self):
+        if self.serial.connected:
+            from scara_kinematics import deg_per_sec_to_hz
+            speed_hz = deg_per_sec_to_hz(self.speed_slider.value())
+            self.serial.set_speed(speed_hz)
+
     def _refresh_ports(self):
         self.port_combo.clear()
         for p in self.serial.list_ports():
@@ -761,6 +789,7 @@ class SCARAHost(QMainWindow):
                 self.conn_status.setText("● 已连接")
                 self.conn_status.setStyleSheet(f"color: {SUCCESS}; font-size: 12px; font-weight: 600;")
                 self._log("已连接 " + port)
+                self._send_speed_to_firmware()
             else:
                 QMessageBox.warning(self, "错误", f"连接失败: {port}")
 
@@ -813,11 +842,12 @@ class SCARAHost(QMainWindow):
     def _fk_send(self):
         t1 = self.fk_t1.value()
         t2 = self.fk_t2.value()
-        from scara_kinematics import angle_to_steps
+        from scara_kinematics import angle_to_steps, deg_per_sec_to_hz
         s1 = angle_to_steps(t1)
         s2 = angle_to_steps(t2)
-        resp = self.serial.move_absolute(s1, s2, self.speed_slider.value())
-        self._log(f"→ A {s1} {s2} {self.speed_slider.value()}")
+        speed_hz = deg_per_sec_to_hz(self.fk_spd.value())
+        resp = self.serial.move_absolute(s1, s2, speed_hz)
+        self._log(f"→ A {s1} {s2} {speed_hz}Hz ({self.fk_spd.value()}°/s)")
         self._log(f"← {resp}")
 
     def _compute_ik(self):
@@ -841,11 +871,12 @@ class SCARAHost(QMainWindow):
             self._log("IK: 位置不可达")
             return
         t1, t2 = ik
-        from scara_kinematics import angle_to_steps
+        from scara_kinematics import angle_to_steps, deg_per_sec_to_hz
         s1 = angle_to_steps(t1)
         s2 = angle_to_steps(t2)
-        resp = self.serial.move_absolute(s1, s2, self.speed_slider.value())
-        self._log(f"→ A {s1} {s2} {self.speed_slider.value()}")
+        speed_hz = deg_per_sec_to_hz(self.ik_spd.value())
+        resp = self.serial.move_absolute(s1, s2, speed_hz)
+        self._log(f"→ A {s1} {s2} {speed_hz}Hz ({self.ik_spd.value()}°/s)")
         self._log(f"← {resp}")
 
     def _set_draw_mode(self, mode: str):
@@ -910,9 +941,9 @@ class SCARAHost(QMainWindow):
         if len(self.traj_points) < 2:
             self._log("需要 ≥ 2 点")
             return
-        speed = self.speed_slider.value()
-        self.current_segments = dda_interpolate_segments(self.traj_points, speed)
-        self._log(f"预览: {len(self.current_segments)} 段")
+        speed_deg_s = self.speed_slider.value()
+        self.current_segments = dda_interpolate_segments(self.traj_points, speed_deg_s)
+        self._log(f"预览: {len(self.current_segments)} 段 (速度 {speed_deg_s}°/s)")
 
     def _send_trajectory(self):
         if not self.serial.connected:

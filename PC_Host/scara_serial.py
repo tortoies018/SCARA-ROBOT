@@ -55,6 +55,7 @@ class SCARASerial:
             return "ER NOT CONNECTED"
         self._response = ""
         self._response_ready.clear()
+        self._buffer = ""
         try:
             with self.lock:
                 self.ser.write(cmd.encode())
@@ -94,7 +95,7 @@ class SCARASerial:
         deadline = time.time() + timeout
         while time.time() < deadline:
             resp = self.send("Q\r\n")
-            if "RDY" in resp or "POS" in resp:
+            if "RDY" in resp:
                 return True
             time.sleep(0.05)
         return False
@@ -120,8 +121,8 @@ class SCARASerial:
     def query(self) -> str:
         return self.send("Q\r\n")
 
-    def set_position(self, s1: int, s2: int) -> str:
-        return self.send(f"SP {s1} {s2}\r\n")
+    def set_speed(self, speed: int) -> str:
+        return self.send(f"V {speed}\r\n")
 
     def parse_position(self, resp: str) -> tuple[int, int, str] | None:
         if resp.startswith("POS"):

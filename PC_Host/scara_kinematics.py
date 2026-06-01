@@ -100,8 +100,17 @@ def interpolate_arc(x1: float, y1: float, x2: float, y2: float,
     return pts
 
 
+def deg_per_sec_to_hz(deg_s: float) -> int:
+    return int(round(deg_s * STEPS_PER_JOINT_REV / 360.0))
+
+
+def hz_to_deg_per_sec(hz: int) -> float:
+    return hz * 360.0 / STEPS_PER_JOINT_REV
+
+
 def dda_interpolate_segments(points: list[tuple[float, float]],
-                             speed: int = 2000) -> list[dict]:
+                             speed_deg_s: float = 200) -> list[dict]:
+    speed_hz = deg_per_sec_to_hz(speed_deg_s)
     segments = []
     for i in range(len(points) - 1):
         x1, y1 = points[i]
@@ -118,7 +127,7 @@ def dda_interpolate_segments(points: list[tuple[float, float]],
             continue
         segments.append({
             "d1": d1, "d2": d2,
-            "speed": speed,
+            "speed": speed_hz,
             "x1": x1, "y1": y1, "x2": x2, "y2": y2
         })
     return segments

@@ -25,6 +25,9 @@
 #define HOME_TIMEOUT_MS        10000
 #define SERIAL_BUF_SIZE        64
 #define TIMER_CLOCK            72000000UL
+#define DEFAULT_SPEED          2000
+#define MIN_SPEED              50
+#define MAX_SPEED              20000
 
 #define MIN(a,b)    (((a)<(b))?(a):(b))
 #define MAX(a,b)    (((a)>(b))?(a):(b))
@@ -66,12 +69,14 @@ typedef struct
     uint8_t home_m1_done;
     uint8_t home_m2_done;
     uint8_t home_approach_phase;
+    uint32_t default_speed;
 } SCARA_Context;
 
 extern SCARA_Context scara;
 
 void SCARA_Init(void);
 void SCARA_SetSpeed(uint32_t spd);
+uint32_t SCARA_GetSpeed(void);
 uint8_t SCARA_ProcessSerial(void);
 void SCARA_Home(void);
 void SCARA_PenUp(void);

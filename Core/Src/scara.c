@@ -102,6 +102,7 @@ void SCARA_Init(void)
     scara.motor2.channel = TIM_CHANNEL_1;
     scara.state = ROBOT_IDLE;
     scara.pen = PEN_UP;
+    scara.default_speed = DEFAULT_SPEED;
 
     SCARA_PenUp();
 
@@ -144,7 +145,7 @@ void SCARA_PenDown(void)
 
 void SCARA_MoveRelative(int32_t d1, int32_t d2, uint32_t speed)
 {
-    if (scara.state == ROBOT_HOMING)
+    if (scara.state == ROBOT_HOMING || scara.state == ROBOT_MOVING)
     {
         SCARA_SendResponse("ER BUSY\r\n");
         return;
@@ -159,6 +160,10 @@ void SCARA_MoveRelative(int32_t d1, int32_t d2, uint32_t speed)
         SCARA_SendResponse("OK\r\n");
         return;
     }
+
+    if (speed == 0) speed = scara.default_speed;
+    if (speed < MIN_SPEED) speed = MIN_SPEED;
+    if (speed > MAX_SPEED) speed = MAX_SPEED;
 
     int32_t a1 = ABS(d1), a2 = ABS(d2);
     uint32_t max_steps = MAX(a1, a2);
@@ -229,6 +234,10 @@ void SCARA_OnTimerPeriodElapsed(TIM_HandleTypeDef *htim)
     if (axis->remaining_steps == 0)
     {
         motor_stop(axis);
+        if (!scara.motor1.busy && !scara.motor2.busy && scara.state == ROBOT_MOVING)
+        {
+            scara.state = ROBOT_IDLE;
+        }
     }
 }
 
@@ -310,8 +319,6 @@ uint8_t SCARA_ProcessSerial(void)
         int32_t d1 = parse_int(&p);
         int32_t d2 = parse_int(&p);
         uint32_t speed = (uint32_t)parse_int(&p);
-        if (speed < 100) speed = 100;
-        if (speed > 20000) speed = 20000;
         SCARA_MoveRelative(d1, d2, speed);
     }
     else if (cmd[0] == 'A')
@@ -320,9 +327,14 @@ uint8_t SCARA_ProcessSerial(void)
         int32_t s1 = parse_int(&p);
         int32_t s2 = parse_int(&p);
         uint32_t speed = (uint32_t)parse_int(&p);
-        if (speed < 100) speed = 100;
-        if (speed > 20000) speed = 20000;
         SCARA_MoveAbsolute(s1, s2, speed);
+    }
+    else if (cmd[0] == 'V')
+    {
+        const char *p = cmd + 1;
+        uint32_t speed = (uint32_t)parse_int(&p);
+        SCARA_SetSpeed(speed);
+        SCARA_SendResponse("OK SPEED %lu\r\n", speed);
     }
     else if (strcmp(cmd, "Q") == 0 || strcmp(cmd, "STATUS") == 0)
     {
@@ -354,7 +366,14 @@ uint8_t SCARA_ProcessSerial(void)
 
 void SCARA_SetSpeed(uint32_t spd)
 {
-    (void)spd;
+    if (spd < MIN_SPEED) spd = MIN_SPEED;
+    if (spd > MAX_SPEED) spd = MAX_SPEED;
+    scara.default_speed = spd;
+}
+
+uint32_t SCARA_GetSpeed(void)
+{
+    return scara.default_speed;
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
