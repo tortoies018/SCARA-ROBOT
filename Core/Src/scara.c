@@ -2,36 +2,10 @@
 #include "tim.h"
 #include "usart.h"
 
-SCARA_Context scara;
+SCARA_Context scara;  /* 全局 SCARA 上下文 */
 
-static char line_buf[SERIAL_BUF_SIZE];
-static volatile uint16_t line_idx = 0;
-static uint8_t uart_rx_byte;
-
-static uint8_t rx_fifo[RX_FIFO_SIZE];
-static volatile uint16_t fifo_head = 0;
-static volatile uint16_t fifo_tail = 0;
-
-static void process_command(const char *cmd);
-
-static uint32_t calc_timer_psc(uint32_t speed_hz);
-static uint32_t calc_timer_arr(uint32_t speed_hz, uint32_t psc);
-static void configure_pwm(MotorAxis *axis, uint32_t speed_hz);
-
-static void uart_send(const char *data, uint16_t len)
-{
-    HAL_UART_Transmit(&huart1, (uint8_t*)data, len, HAL_MAX_DELAY);
-}
-
-static void configure_pwm(MotorAxis *axis, uint32_t speed_hz)
-{
-    uint32_t psc = calc_timer_psc(speed_hz);
-    uint32_t arr = calc_timer_arr(speed_hz, psc);
-    __HAL_TIM_SET_PRESCALER(axis->htim, psc);
-    __HAL_TIM_SET_AUTORELOAD(axis->htim, arr);
-    __HAL_TIM_SET_COMPARE(axis->htim, axis->channel, arr >> 1);
-}
-
+/* ==================== 定时器频率计算 ==================== */
+/* 计算 prescaler: 使 ARR 落在 16 位范围内 */
 static uint32_t calc_timer_psc(uint32_t speed_hz)
 {
     if (speed_hz == 0) return 0;
@@ -42,6 +16,7 @@ static uint32_t calc_timer_psc(uint32_t speed_hz)
     return psc > 0 ? psc - 1 : 0;
 }
 
+/* 计算 auto-reload 值 */
 static uint32_t calc_timer_arr(uint32_t speed_hz, uint32_t psc)
 {
     if (speed_hz == 0) return 0;
@@ -52,16 +27,29 @@ static uint32_t calc_timer_arr(uint32_t speed_hz, uint32_t psc)
     return arr - 1;
 }
 
+/* 配置 PWM 频率和占空比 */
+static void configure_pwm(MotorAxis *axis, uint32_t speed_hz)
+{
+    uint32_t psc = calc_timer_psc(speed_hz);
+    uint32_t arr = calc_timer_arr(speed_hz, psc);
+    __HAL_TIM_SET_PRESCALER(axis->htim, psc);
+    __HAL_TIM_SET_AUTORELOAD(axis->htim, arr);
+    __HAL_TIM_SET_COMPARE(axis->htim, axis->channel, arr >> 1);  /* 50% 占空比 */
+}
+
+/* ==================== 电机启停 ==================== */
+/* 启动电机: 设置方向/使能 → 配置 PWM → 生成 UG 加载影子寄存器 → 启动定时器 */
 void motor_start(MotorAxis *axis, int32_t steps, uint32_t speed_hz)
 {
     if (steps == 0) return;
     uint8_t forward = steps > 0;
     axis->moving_forward = forward;
 
+    /* 设置方向引脚和使能引脚 */
     if (axis->htim->Instance == TIM1)
     {
         HAL_GPIO_WritePin(DIR1_GPIO_Port, DIR1_Pin, forward ? GPIO_PIN_SET : GPIO_PIN_RESET);
-        HAL_GPIO_WritePin(ENA1_GPIO_Port, ENA1_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(ENA1_GPIO_Port, ENA1_Pin, GPIO_PIN_RESET);  /* DM542: 低电平使能 */
     }
     else
     {
@@ -72,6 +60,7 @@ void motor_start(MotorAxis *axis, int32_t steps, uint32_t speed_hz)
     configure_pwm(axis, speed_hz);
     __HAL_TIM_SET_COUNTER(axis->htim, 0);
 
+    /* 生成 UG 事件加载影子寄存器，避免首脉冲频率错误 */
     __HAL_TIM_DISABLE_IT(axis->htim, TIM_IT_UPDATE);
     axis->htim->Instance->EGR = TIM_EGR_UG;
     __HAL_TIM_CLEAR_FLAG(axis->htim, TIM_FLAG_UPDATE);
@@ -82,6 +71,7 @@ void motor_start(MotorAxis *axis, int32_t steps, uint32_t speed_hz)
     HAL_TIM_PWM_Start_IT(axis->htim, axis->channel);
 }
 
+/* 停止电机: 停止 PWM → 禁能使能 */
 void motor_stop(MotorAxis *axis)
 {
     HAL_TIM_PWM_Stop_IT(axis->htim, axis->channel);
@@ -90,7 +80,7 @@ void motor_stop(MotorAxis *axis)
 
     if (axis->htim->Instance == TIM1)
     {
-        HAL_GPIO_WritePin(ENA1_GPIO_Port, ENA1_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(ENA1_GPIO_Port, ENA1_Pin, GPIO_PIN_SET);  /* 高电平禁能 */
     }
     else
     {
@@ -98,6 +88,7 @@ void motor_stop(MotorAxis *axis)
     }
 }
 
+/* ==================== 初始化 ==================== */
 void SCARA_Init(void)
 {
     memset(&scara, 0, sizeof(scara));
@@ -109,19 +100,20 @@ void SCARA_Init(void)
     scara.pen = PEN_UP;
     scara.default_speed = DEFAULT_SPEED;
 
+    /* 运行时配置 TIM4 → 50Hz 舵机 PWM */
     __HAL_TIM_SET_PRESCALER(&htim4, 1439);
     __HAL_TIM_SET_AUTORELOAD(&htim4, 999);
     __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, SERVO_UP_CCR);
-    htim4.Instance->EGR = TIM_EGR_UG;
+    htim4.Instance->EGR = TIM_EGR_UG;  /* 加载影子寄存器 */
     HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
 
-    SCARA_PenUp();
-
-    HAL_UART_Receive_IT(&huart1, &uart_rx_byte, 1);
+    /* 启动 UART 中断接收 */
+    SCARA_UART_InitRx();
 
     SCARA_SendResponse("SCARA READY\r\n");
 }
 
+/* ==================== 回零 ==================== */
 void SCARA_Home(void)
 {
     if (scara.state == ROBOT_HOMING || scara.state == ROBOT_MOVING) return;
@@ -131,6 +123,7 @@ void SCARA_Home(void)
     scara.home_approach_phase = 0;
     scara.home_start_ms = HAL_GetTick();
 
+    /* 清零当前位置，向负方向搜索极限位置 */
     scara.motor1.current_position = 0;
     scara.motor2.current_position = 0;
 
@@ -140,10 +133,11 @@ void SCARA_Home(void)
     SCARA_SendResponse("OK HOME\r\n");
 }
 
+/* ==================== 舵机控制 ==================== */
 void SCARA_PenUp(void)
 {
     __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, SERVO_UP_CCR);
-    HAL_Delay(300);
+    HAL_Delay(300);  /* 等待舵机到位 */
     scara.pen = PEN_UP;
 }
 
@@ -154,6 +148,8 @@ void SCARA_PenDown(void)
     scara.pen = PEN_DOWN;
 }
 
+/* ==================== 运动控制 ==================== */
+/* DDA 比例速度协调: 两电机速度按步数比例分配，保证同时到达 */
 void SCARA_MoveRelative(int32_t d1, int32_t d2, uint32_t speed)
 {
     if (scara.state == ROBOT_HOMING || scara.state == ROBOT_MOVING)
@@ -184,6 +180,7 @@ void SCARA_MoveRelative(int32_t d1, int32_t d2, uint32_t speed)
         return;
     }
 
+    /* 速度与步数成正比，大行程电机跑的更快，两电机同时停止 */
     uint32_t s1 = (uint32_t)((uint64_t)a1 * speed / max_steps);
     uint32_t s2 = (uint32_t)((uint64_t)a2 * speed / max_steps);
     if (s1 < 50) s1 = 50;
@@ -216,6 +213,7 @@ uint8_t SCARA_IsBusy(void)
     return scara.motor1.busy || scara.motor2.busy || scara.state == ROBOT_HOMING;
 }
 
+/* ==================== 位置查询 ==================== */
 void SCARA_GetPosition(int32_t *s1, int32_t *s2)
 {
     *s1 = scara.motor1.current_position;
@@ -228,6 +226,20 @@ void SCARA_SetPosition(int32_t s1, int32_t s2)
     scara.motor2.current_position = s2;
 }
 
+void SCARA_SetSpeed(uint32_t spd)
+{
+    if (spd < MIN_SPEED) spd = MIN_SPEED;
+    if (spd > MAX_SPEED) spd = MAX_SPEED;
+    scara.default_speed = spd;
+}
+
+uint32_t SCARA_GetSpeed(void)
+{
+    return scara.default_speed;
+}
+
+/* ==================== 定时器中断回调 ==================== */
+/* TIM1/TIM3 更新事件: 递减剩余步数，归零时停止电机 */
 void SCARA_OnTimerPeriodElapsed(TIM_HandleTypeDef *htim)
 {
     MotorAxis *axis = NULL;
@@ -245,6 +257,7 @@ void SCARA_OnTimerPeriodElapsed(TIM_HandleTypeDef *htim)
     if (axis->remaining_steps == 0)
     {
         motor_stop(axis);
+        /* 两电机均停止 → 状态切回 IDLE */
         if (!scara.motor1.busy && !scara.motor2.busy && scara.state == ROBOT_MOVING)
         {
             scara.state = ROBOT_IDLE;
@@ -253,161 +266,8 @@ void SCARA_OnTimerPeriodElapsed(TIM_HandleTypeDef *htim)
     }
 }
 
-void SCARA_SendResponse(const char *fmt, ...)
-{
-    char buf[128];
-    va_list args;
-    va_start(args, fmt);
-    int len = vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-    if (len > 0) uart_send(buf, (uint16_t)(len > 127 ? 127 : len));
-}
-
-void SCARA_UART_RxCallback(uint8_t byte)
-{
-    uint16_t next = (fifo_head + 1) % RX_FIFO_SIZE;
-    if (next != fifo_tail)
-    {
-        rx_fifo[fifo_head] = byte;
-        fifo_head = next;
-    }
-}
-
-static int parse_int(const char **p)
-{
-    while (**p == ' ' || **p == '\t') (*p)++;
-    int neg = 0;
-    if (**p == '-')
-    {
-        neg = 1;
-        (*p)++;
-    }
-    else if (**p == '+')
-    {
-        (*p)++;
-    }
-    int val = 0;
-    while (**p >= '0' && **p <= '9')
-    {
-        val = val * 10 + (**p - '0');
-        (*p)++;
-    }
-    return neg ? -val : val;
-}
-
-static void process_command(const char *cmd)
-{
-    if (strcmp(cmd, "H") == 0 || strcmp(cmd, "HOME") == 0)
-    {
-        SCARA_Home();
-    }
-    else if (strcmp(cmd, "P0") == 0 || strcmp(cmd, "PEN 0") == 0)
-    {
-        SCARA_PenUp();
-        SCARA_SendResponse("OK\r\n");
-    }
-    else if (strcmp(cmd, "P1") == 0 || strcmp(cmd, "PEN 1") == 0)
-    {
-        SCARA_PenDown();
-        SCARA_SendResponse("OK\r\n");
-    }
-    else if (cmd[0] == 'M')
-    {
-        const char *p = cmd + 1;
-        int32_t d1 = parse_int(&p);
-        int32_t d2 = parse_int(&p);
-        uint32_t speed = (uint32_t)parse_int(&p);
-        SCARA_MoveRelative(d1, d2, speed);
-    }
-    else if (cmd[0] == 'A')
-    {
-        const char *p = cmd + 1;
-        int32_t s1 = parse_int(&p);
-        int32_t s2 = parse_int(&p);
-        uint32_t speed = (uint32_t)parse_int(&p);
-        SCARA_MoveAbsolute(s1, s2, speed);
-    }
-    else if (strcmp(cmd, "Q") == 0 || strcmp(cmd, "STATUS") == 0)
-    {
-        char buf[64];
-        int n = snprintf(buf, sizeof(buf), "POS %ld %ld %s\r\n",
-            scara.motor1.current_position, scara.motor2.current_position,
-            SCARA_IsBusy() ? "BSY" : "RDY");
-        if (n > 0) uart_send(buf, (uint16_t)(n > 63 ? 63 : n));
-    }
-    else if (strcmp(cmd, "!") == 0 || strcmp(cmd, "STOP") == 0)
-    {
-        SCARA_Stop();
-    }
-    else if (cmd[0] == 'S' && cmd[1] == 'P')
-    {
-        const char *p = cmd + 2;
-        int32_t s1 = parse_int(&p);
-        int32_t s2 = parse_int(&p);
-        SCARA_SetPosition(s1, s2);
-        SCARA_SendResponse("OK\r\n");
-    }
-    else if (cmd[0] == 'V')
-    {
-        const char *p = cmd + 1;
-        uint32_t speed = (uint32_t)parse_int(&p);
-        SCARA_SetSpeed(speed);
-        SCARA_SendResponse("OK SPEED %lu\r\n", speed);
-    }
-    else
-    {
-        SCARA_SendResponse("ER UNKNOWN\r\n");
-    }
-}
-
-uint8_t SCARA_ProcessSerial(void)
-{
-    uint8_t processed = 0;
-    while (fifo_tail != fifo_head)
-    {
-        uint8_t byte = rx_fifo[fifo_tail];
-        fifo_tail = (fifo_tail + 1) % RX_FIFO_SIZE;
-
-        if (byte == '\n' || byte == '\r')
-        {
-            if (line_idx > 0)
-            {
-                line_buf[line_idx] = '\0';
-                process_command(line_buf);
-                line_idx = 0;
-                processed = 1;
-            }
-        }
-        else if (line_idx < SERIAL_BUF_SIZE - 1)
-        {
-            line_buf[line_idx++] = (char)byte;
-        }
-    }
-    return processed;
-}
-
-void SCARA_SetSpeed(uint32_t spd)
-{
-    if (spd < MIN_SPEED) spd = MIN_SPEED;
-    if (spd > MAX_SPEED) spd = MAX_SPEED;
-    scara.default_speed = spd;
-}
-
-uint32_t SCARA_GetSpeed(void)
-{
-    return scara.default_speed;
-}
-
+/* ==================== HAL 回调 ==================== */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     SCARA_OnTimerPeriodElapsed(htim);
-}
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-    if (huart->Instance == USART1)
-    {
-        SCARA_UART_RxCallback(uart_rx_byte);
-        HAL_UART_Receive_IT(&huart1, &uart_rx_byte, 1);
-    }
 }
