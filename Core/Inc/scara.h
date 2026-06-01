@@ -24,6 +24,7 @@
 #define HOME_APPROACH_SPEED    200
 #define HOME_TIMEOUT_MS        10000
 #define SERIAL_BUF_SIZE        64
+#define RX_FIFO_SIZE           128
 #define TIMER_CLOCK            72000000UL
 #define DEFAULT_SPEED          2000
 #define MIN_SPEED              50

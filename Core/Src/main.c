@@ -100,71 +100,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    SCARA_ProcessSerial();
-    if (scara.state == ROBOT_HOMING)
-    {
-        uint32_t home_m1_stopped = !scara.motor1.busy;
-        uint32_t home_m2_stopped = !scara.motor2.busy;
+    /* USER CODE END WHILE */
 
-        if (scara.home_approach_phase == 0)
-        {
-            if (HAL_GPIO_ReadPin(AIN1_GPIO_Port, AIN1_Pin) == GPIO_PIN_SET)
-            {
-                motor_stop(&scara.motor1);
-                scara.home_m1_done = 1;
-            }
-            if (HAL_GPIO_ReadPin(BIN1_GPIO_Port, BIN1_Pin) == GPIO_PIN_SET)
-            {
-                motor_stop(&scara.motor2);
-                scara.home_m2_done = 1;
-            }
-            if (scara.home_m1_done && scara.home_m2_done)
-            {
-                scara.home_approach_phase = 1;
-                SCARA_SetPosition(0, 0);
-                motor_start(&scara.motor1, HOME_BACKOFF_STEPS, HOME_SPEED);
-                motor_start(&scara.motor2, HOME_BACKOFF_STEPS, HOME_SPEED);
-                scara.home_m1_done = 0;
-                scara.home_m2_done = 0;
-            }
-        }
-        else if (scara.home_approach_phase == 1)
-        {
-            if (home_m1_stopped && home_m2_stopped)
-            {
-                scara.home_approach_phase = 2;
-                motor_start(&scara.motor1, -HOME_BACKOFF_STEPS, HOME_APPROACH_SPEED);
-                motor_start(&scara.motor2, -HOME_BACKOFF_STEPS, HOME_APPROACH_SPEED);
-            }
-        }
-        else if (scara.home_approach_phase == 2)
-        {
-            if (HAL_GPIO_ReadPin(AIN1_GPIO_Port, AIN1_Pin) == GPIO_PIN_SET)
-            {
-                motor_stop(&scara.motor1);
-                scara.home_m1_done = 1;
-            }
-            if (HAL_GPIO_ReadPin(BIN1_GPIO_Port, BIN1_Pin) == GPIO_PIN_SET)
-            {
-                motor_stop(&scara.motor2);
-                scara.home_m2_done = 1;
-            }
-            if (scara.home_m1_done && scara.home_m2_done)
-            {
-                SCARA_SetPosition(0, 0);
-                scara.state = ROBOT_IDLE;
-                SCARA_SendResponse("RDY HOME DONE\r\n");
-            }
-        }
-
-        if (HAL_GetTick() - scara.home_start_ms > HOME_TIMEOUT_MS)
-        {
-            motor_stop(&scara.motor1);
-            motor_stop(&scara.motor2);
-            scara.state = ROBOT_ERROR;
-            SCARA_SendResponse("ER HOME TIMEOUT\r\n");
-        }
-    }
+    /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }

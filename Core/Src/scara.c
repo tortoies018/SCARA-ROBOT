@@ -4,10 +4,15 @@
 
 SCARA_Context scara;
 
-static uint8_t rx_buf[SERIAL_BUF_SIZE];
-static volatile uint16_t rx_index = 0;
-static volatile uint8_t cmd_ready = 0;
+static char line_buf[SERIAL_BUF_SIZE];
+static volatile uint16_t line_idx = 0;
 static uint8_t uart_rx_byte;
+
+static uint8_t rx_fifo[RX_FIFO_SIZE];
+static volatile uint16_t fifo_head = 0;
+static volatile uint16_t fifo_tail = 0;
+
+static void process_command(const char *cmd);
 
 static uint32_t calc_timer_psc(uint32_t speed_hz);
 static uint32_t calc_timer_arr(uint32_t speed_hz, uint32_t psc);
@@ -103,6 +108,12 @@ void SCARA_Init(void)
     scara.state = ROBOT_IDLE;
     scara.pen = PEN_UP;
     scara.default_speed = DEFAULT_SPEED;
+
+    __HAL_TIM_SET_PRESCALER(&htim4, 1439);
+    __HAL_TIM_SET_AUTORELOAD(&htim4, 999);
+    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, SERVO_UP_CCR);
+    htim4.Instance->EGR = TIM_EGR_UG;
+    HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
 
     SCARA_PenUp();
 
@@ -237,6 +248,7 @@ void SCARA_OnTimerPeriodElapsed(TIM_HandleTypeDef *htim)
         if (!scara.motor1.busy && !scara.motor2.busy && scara.state == ROBOT_MOVING)
         {
             scara.state = ROBOT_IDLE;
+            SCARA_SendResponse("RDY\r\n");
         }
     }
 }
@@ -253,20 +265,11 @@ void SCARA_SendResponse(const char *fmt, ...)
 
 void SCARA_UART_RxCallback(uint8_t byte)
 {
-    if (cmd_ready) return;
-
-    if (byte == '\n' || byte == '\r')
+    uint16_t next = (fifo_head + 1) % RX_FIFO_SIZE;
+    if (next != fifo_tail)
     {
-        if (rx_index > 0)
-        {
-            rx_buf[rx_index] = '\0';
-            cmd_ready = 1;
-            rx_index = 0;
-        }
-    }
-    else if (rx_index < SERIAL_BUF_SIZE - 1)
-    {
-        rx_buf[rx_index++] = byte;
+        rx_fifo[fifo_head] = byte;
+        fifo_head = next;
     }
 }
 
@@ -292,13 +295,8 @@ static int parse_int(const char **p)
     return neg ? -val : val;
 }
 
-uint8_t SCARA_ProcessSerial(void)
+static void process_command(const char *cmd)
 {
-    if (!cmd_ready) return 0;
-
-    const char *cmd = (const char*)rx_buf;
-    cmd_ready = 0;
-
     if (strcmp(cmd, "H") == 0 || strcmp(cmd, "HOME") == 0)
     {
         SCARA_Home();
@@ -329,13 +327,6 @@ uint8_t SCARA_ProcessSerial(void)
         uint32_t speed = (uint32_t)parse_int(&p);
         SCARA_MoveAbsolute(s1, s2, speed);
     }
-    else if (cmd[0] == 'V')
-    {
-        const char *p = cmd + 1;
-        uint32_t speed = (uint32_t)parse_int(&p);
-        SCARA_SetSpeed(speed);
-        SCARA_SendResponse("OK SPEED %lu\r\n", speed);
-    }
     else if (strcmp(cmd, "Q") == 0 || strcmp(cmd, "STATUS") == 0)
     {
         char buf[64];
@@ -356,12 +347,43 @@ uint8_t SCARA_ProcessSerial(void)
         SCARA_SetPosition(s1, s2);
         SCARA_SendResponse("OK\r\n");
     }
+    else if (cmd[0] == 'V')
+    {
+        const char *p = cmd + 1;
+        uint32_t speed = (uint32_t)parse_int(&p);
+        SCARA_SetSpeed(speed);
+        SCARA_SendResponse("OK SPEED %lu\r\n", speed);
+    }
     else
     {
         SCARA_SendResponse("ER UNKNOWN\r\n");
     }
+}
 
-    return 1;
+uint8_t SCARA_ProcessSerial(void)
+{
+    uint8_t processed = 0;
+    while (fifo_tail != fifo_head)
+    {
+        uint8_t byte = rx_fifo[fifo_tail];
+        fifo_tail = (fifo_tail + 1) % RX_FIFO_SIZE;
+
+        if (byte == '\n' || byte == '\r')
+        {
+            if (line_idx > 0)
+            {
+                line_buf[line_idx] = '\0';
+                process_command(line_buf);
+                line_idx = 0;
+                processed = 1;
+            }
+        }
+        else if (line_idx < SERIAL_BUF_SIZE - 1)
+        {
+            line_buf[line_idx++] = (char)byte;
+        }
+    }
+    return processed;
 }
 
 void SCARA_SetSpeed(uint32_t spd)
