@@ -80,21 +80,26 @@ void motor_start(MotorAxis *axis, int32_t steps, uint32_t speed_hz)
     __HAL_TIM_ENABLE(axis->htim);
 }
 
-/* 停止电机: 停止 PWM → 禁能使能 */
+/* 停止电机: 停止 PWM 和中断 (不禁用 ENA，保持锁定转矩) */
 void motor_stop(MotorAxis *axis)
 {
     HAL_TIM_PWM_Stop_IT(axis->htim, axis->channel);
     axis->remaining_steps = 0;
     axis->busy = 0;
+}
 
-    if (axis->htim->Instance == TIM1)
-    {
-        HAL_GPIO_WritePin(ENA1_GPIO_Port, ENA1_Pin, GPIO_PIN_SET);  /* 高电平禁能 */
-    }
-    else
-    {
-        HAL_GPIO_WritePin(ENA2_GPIO_Port, ENA2_Pin, GPIO_PIN_SET);
-    }
+/* 使能两个电机 (低电平使能) */
+void SCARA_EnableMotors(void)
+{
+    HAL_GPIO_WritePin(ENA1_GPIO_Port, ENA1_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(ENA2_GPIO_Port, ENA2_Pin, GPIO_PIN_RESET);
+}
+
+/* 禁用两个电机 (高电平禁能) */
+void SCARA_DisableMotors(void)
+{
+    HAL_GPIO_WritePin(ENA1_GPIO_Port, ENA1_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(ENA2_GPIO_Port, ENA2_Pin, GPIO_PIN_SET);
 }
 
 /* ==================== 初始化 ==================== */
@@ -115,6 +120,9 @@ void SCARA_Init(void)
     __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, SERVO_UP_CCR);
     htim4.Instance->EGR = TIM_EGR_UG;  /* 加载影子寄存器 */
     HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
+
+    /* 电机默认使能 */
+    SCARA_EnableMotors();
 
     /* 启动 UART 中断接收 */
     SCARA_UART_InitRx();

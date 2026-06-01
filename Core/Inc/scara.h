@@ -9,7 +9,7 @@
 #define STEPS_PER_REV          200     /* 步进电机每圈步数 */
 #define MICROSTEPS             8       /* DM542 细分 */
 #define STEPS_PER_MOTOR_REV    (STEPS_PER_REV * MICROSTEPS)  /* 电机轴每圈脉冲 */
-#define PULLEY_RATIO           5       /* 同步带减速比 */
+#define PULLEY_RATIO           1       /* 直连 (无同步带) */
 #define STEPS_PER_JOINT_REV    (STEPS_PER_MOTOR_REV * PULLEY_RATIO)  /* 关节每圈脉冲 */
 
 #define ARM1_LENGTH_MM         150.0f  /* 大臂长度 mm */
@@ -114,6 +114,8 @@ void SCARA_Home(void);
 /* ======================== 舵机 ======================== */
 void SCARA_PenUp(void);
 void SCARA_PenDown(void);
+void SCARA_EnableMotors(void);
+void SCARA_DisableMotors(void);
 
 /* ======================== 串口 ======================== */
 uint8_t SCARA_ProcessSerial(void);

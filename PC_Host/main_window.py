@@ -184,6 +184,17 @@ class MainW(QMainWindow):
         self.fkm.clicked.connect(self._send)
         fl.addRow("", self.fkm)
         ll.addWidget(fg)
+
+        # 电机使能控制
+        eg = QGroupBox("电机")
+        el = QHBoxLayout(eg)
+        self.en_btn = QPushButton("使能")
+        self.en_btn.clicked.connect(lambda: self._do_enable(1))
+        self.dis_btn = QPushButton("禁能")
+        self.dis_btn.clicked.connect(lambda: self._do_enable(0))
+        el.addWidget(self.en_btn)
+        el.addWidget(self.dis_btn)
+        ll.addWidget(eg)
         ll.addStretch()
 
         # ========== 右侧面板 ==========
@@ -259,7 +270,8 @@ class MainW(QMainWindow):
         self.st.setStyleSheet(f"color:#{'a6e3a1' if ok else '6c7086'}")
         self._log(f"系统: {msg}")
         if ok:
-            QTimer.singleShot(100, lambda: self.serial.send(b"V 2000\r\n"))
+            QTimer.singleShot(100, lambda: self._do_enable(1))
+            QTimer.singleShot(200, lambda: self.serial.send(b"V 2000\r\n"))
 
     def _on_data(self, data: bytes):
         """串口数据接收"""
@@ -314,6 +326,15 @@ class MainW(QMainWindow):
         t2 = int(self.fk2.value())
         spd = int(self.fks.value())
         cmd = f"M {t1} {t2} {spd}"
+        self.serial.send((cmd + "\r\n").encode())
+        self._log(f"→ {cmd}")
+
+    def _do_enable(self, on: int):
+        """电机使能/禁能"""
+        if not self.serial.connected:
+            self._log("未连接")
+            return
+        cmd = f"E {on}"
         self.serial.send((cmd + "\r\n").encode())
         self._log(f"→ {cmd}")
 

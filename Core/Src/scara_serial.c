@@ -128,6 +128,14 @@ static void process_command(const char *cmd)
         SCARA_SetSpeed(speed);
         SCARA_SendResponse("OK SPEED\r\n");
     }
+    /* E 指令: 电机使能 E 1=使能 / E 0=禁能 */
+    else if (cmd[0] == 'E')
+    {
+        const char *p = cmd + 1;
+        int32_t val = parse_int(&p);
+        if (val != 0) { SCARA_EnableMotors(); SCARA_SendResponse("OK ENABLED\r\n"); }
+        else          { SCARA_DisableMotors(); SCARA_SendResponse("OK DISABLED\r\n"); }
+    }
     else
     {
         SCARA_SendResponse("ER UNKNOWN\r\n");
