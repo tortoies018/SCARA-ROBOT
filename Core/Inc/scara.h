@@ -84,6 +84,7 @@ typedef struct
     uint8_t home_m2_done;       /* 电机2回零完成标志 */
     uint8_t home_approach_phase;/* 回零阶段 */
     uint32_t default_speed;     /* 默认速度 (steps/s) */
+    volatile uint8_t rdy_pending; /* RDY 待发送标志 */
 } SCARA_Context;
 
 extern SCARA_Context scara;     /* 全局 SCARA 上下文 */

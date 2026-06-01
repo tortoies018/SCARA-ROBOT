@@ -68,7 +68,16 @@ void motor_start(MotorAxis *axis, int32_t steps, uint32_t speed_hz)
     axis->remaining_steps = ABS(steps);
     axis->busy = 1;
 
-    HAL_TIM_PWM_Start_IT(axis->htim, axis->channel);
+    /* 启用 PWM 通道 */
+    TIM_CCxChannelCmd(axis->htim->Instance, axis->channel, TIM_CCx_ENABLE);
+    /* TIM1 高级定时器需要使能主输出 */
+    if (axis->htim->Instance == TIM1)
+    {
+        axis->htim->Instance->BDTR |= TIM_BDTR_MOE;
+    }
+    /* 启用更新中断和计数器 */
+    __HAL_TIM_ENABLE_IT(axis->htim, TIM_IT_UPDATE);
+    __HAL_TIM_ENABLE(axis->htim);
 }
 
 /* 停止电机: 停止 PWM → 禁能使能 */
@@ -257,11 +266,11 @@ void SCARA_OnTimerPeriodElapsed(TIM_HandleTypeDef *htim)
     if (axis->remaining_steps == 0)
     {
         motor_stop(axis);
-        /* 两电机均停止 → 状态切回 IDLE */
+        /* 两电机均停止 → 状态切回 IDLE，设标志由主循环发 RDY */
         if (!scara.motor1.busy && !scara.motor2.busy && scara.state == ROBOT_MOVING)
         {
             scara.state = ROBOT_IDLE;
-            SCARA_SendResponse("RDY\r\n");
+            scara.rdy_pending = 1;
         }
     }
 }

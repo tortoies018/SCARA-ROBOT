@@ -102,6 +102,13 @@ int main(void)
   {
     SCARA_ProcessSerial();
 
+    /* 由中断设置的 RDY 待发送标志 → 主循环安全发送 */
+    if (scara.rdy_pending)
+    {
+        scara.rdy_pending = 0;
+        SCARA_SendResponse("RDY\r\n");
+    }
+
     /* 回零状态机：2段式光电寻零 */
     if (scara.state == ROBOT_HOMING)
     {
