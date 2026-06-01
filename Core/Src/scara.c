@@ -61,23 +61,17 @@ void motor_start(MotorAxis *axis, int32_t steps, uint32_t speed_hz)
     __HAL_TIM_SET_COUNTER(axis->htim, 0);
 
     /* 生成 UG 事件加载影子寄存器，避免首脉冲频率错误 */
-    __HAL_TIM_DISABLE_IT(axis->htim, TIM_IT_UPDATE);
     axis->htim->Instance->EGR = TIM_EGR_UG;
     __HAL_TIM_CLEAR_FLAG(axis->htim, TIM_FLAG_UPDATE);
 
     axis->remaining_steps = ABS(steps);
     axis->busy = 1;
 
-    /* 启用 PWM 通道 */
-    TIM_CCxChannelCmd(axis->htim->Instance, axis->channel, TIM_CCx_ENABLE);
-    /* TIM1 高级定时器需要使能主输出 */
-    if (axis->htim->Instance == TIM1)
-    {
-        axis->htim->Instance->BDTR |= TIM_BDTR_MOE;
-    }
-    /* 启用更新中断和计数器 */
     __HAL_TIM_ENABLE_IT(axis->htim, TIM_IT_UPDATE);
     __HAL_TIM_ENABLE(axis->htim);
+
+    /* 启用 PWM 通道 + 更新中断 + 计数器 */
+    HAL_TIM_PWM_Start_IT(axis->htim, axis->channel);
 }
 
 /* 停止电机: 停止 PWM 和中断 (不禁用 ENA，保持锁定转矩) */
