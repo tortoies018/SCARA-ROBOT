@@ -223,7 +223,8 @@ class MainW(QMainWindow):
         super().__init__()
         self.serial = SerialWorker()
         self._rx = ""
-        self._traj_queue: list[tuple[int, int, int]] = []  # (θ1, θ2, speed_hz) 队列
+        self._traj_schedule: list[tuple[int, int, int]] = []  # O轨迹调度 (s1, s2, delay_ms)
+        self._traj_idx = 0
         self._traj_running = False
         self._build_ui()
         self.serial.signals.data_received.connect(self._on_data)
@@ -292,6 +293,9 @@ class MainW(QMainWindow):
         self.p_spd2 = QDoubleSpinBox(); self.p_spd2.setRange(1, 720); self.p_spd2.setValue(90); self.p_spd2.setSuffix(" °/s")
         sr1 = QHBoxLayout(); sr1.addWidget(QLabel("电机1:")); sr1.addWidget(self.p_spd1); sr1.addWidget(QLabel("电机2:")); sr1.addWidget(self.p_spd2)
         pl.addRow(sr1)
+        self.p_dur = QDoubleSpinBox(); self.p_dur.setRange(0, 600); self.p_dur.setValue(0); self.p_dur.setSuffix(" 秒"); self.p_dur.setSpecialValueText("连续")
+        sr2 = QHBoxLayout(); sr2.addWidget(QLabel("时长:")); sr2.addWidget(self.p_dur)
+        pl.addRow(sr2)
         brp = QHBoxLayout()
         self.p_fwd = QPushButton("正转"); self.p_fwd.clicked.connect(lambda: self._pulse(1, 1))
         self.p_rev = QPushButton("反转"); self.p_rev.clicked.connect(lambda: self._pulse(-1, -1))
@@ -324,6 +328,14 @@ class MainW(QMainWindow):
         self.tspd = QDoubleSpinBox(); self.tspd.setRange(1, 720); self.tspd.setValue(90); self.tspd.setSuffix(" °/s")
         tr4 = QHBoxLayout(); tr4.addWidget(QLabel("速度:")); tr4.addWidget(self.tspd)
         tl.addRow(tr4)
+
+        # 加减速
+        self.tacc = QDoubleSpinBox(); self.tacc.setRange(1, 500); self.tacc.setValue(100); self.tacc.setSuffix(" °/s²")
+        tr5 = QHBoxLayout(); tr5.addWidget(QLabel("加速:")); tr5.addWidget(self.tacc)
+        tl.addRow(tr5)
+        self.tdec = QDoubleSpinBox(); self.tdec.setRange(1, 500); self.tdec.setValue(100); self.tdec.setSuffix(" °/s²")
+        tr6 = QHBoxLayout(); tr6.addWidget(QLabel("减速:")); tr6.addWidget(self.tdec)
+        tl.addRow(tr6)
 
         # 按钮
         br = QHBoxLayout()
@@ -394,10 +406,6 @@ class MainW(QMainWindow):
                 self._rx = self._rx[i+1:]
                 if l:
                     self._log(f"← {l}")
-                    # 轨迹队列模式下, 收到 RDY 或 OK (零位移) 后发下一点
-                    # 轨迹队列: RDY(单步完成)或OK(零位移) 触发下一发
-                    if self._traj_running and ("RDY" in l or l == "OK"):
-                        self._send_next_traj()
         except Exception:
             pass
 
@@ -457,79 +465,109 @@ class MainW(QMainWindow):
         self._log(f"直线预览: ({x1:.0f},{y1:.0f})→({x2:.0f},{y2:.0f}) 步长{step}mm → {len(pts)}点")
 
     def _pulse(self, dir1: int, dir2: int):
-        """连续脉冲: O 速度1 速度2 (符号=方向)"""
+        """连续脉冲: O 速度1 速度2 (符号=方向), 支持定时停止"""
         if not self.serial.connected: self._log("未连接"); return
         s1 = int(self.p_spd1.value()) * dir1
         s2 = int(self.p_spd2.value()) * dir2
         self._cmd(f"O {s1} {s2}")
+        dur = self.p_dur.value()
+        if dur > 0:
+            self._log(f"  {dur}秒后自动停止")
+            QTimer.singleShot(int(dur * 1000), lambda: self._cmd("C"))
 
     def _clear_traj(self):
         self.canvas.clear_traj()
-        self._traj_queue.clear()
+        self._traj_schedule.clear()
+        self._traj_idx = 0
         self._traj_running = False
         self.tprog.setValue(0); self.tstat.setText("")
         self._log("轨迹已清空")
 
     def _exec_line(self):
-        """逆解并发送直线轨迹到 MCU"""
+        """直线轨迹: O 指令梯形加减速"""
         if not self.serial.connected: self._log("未连接"); return
         if self._traj_running: self._log("正在执行中"); return
 
         x1, y1 = self.tsx.value(), self.tsy.value()
         x2, y2 = self.tex.value(), self.tey.value()
-        step = self.tstep.value()
-        speed_dps = self.tspd.value()
+        v_max = self.tspd.value()
+        accel = self.tacc.value()
+        decel = self.tdec.value()
 
-        # 插值
-        pts = interpolate_line(x1, y1, x2, y2, step)
-        self.canvas.set_traj(pts)
+        ik1 = inverse_kinematics(x1, y1)
+        ik2 = inverse_kinematics(x2, y2)
+        if not ik1 or not ik2:
+            self._log("起点或终点不可达"); return
+        t1s, t2s = ik1; t1e, t2e = ik2
 
-        # 逐个逆解, 角度连续化处理
-        self._traj_queue.clear()
-        prev = None
-        for x, y in pts:
-            ik = inverse_kinematics(x, y)
-            if ik is None:
-                self._log(f"  ✗ 点 ({x:.0f},{y:.0f}) 不可达, 中断")
-                self._traj_queue.clear()
-                return
-            t1, t2 = ik
-            # 角度连续化: 避免 ±360° 跳变
-            if prev is not None:
-                while t1 - prev[0] >  180: t1 -= 360
-                while t1 - prev[0] < -180: t1 += 360
-                while t2 - prev[1] >  180: t2 -= 360
-                while t2 - prev[1] < -180: t2 += 360
-            it1, it2 = int(t1), int(t2)
-            # 跳过与上一点相同的角度
-            if not self._traj_queue or (it1, it2) != (self._traj_queue[-1][0], self._traj_queue[-1][1]):
-                self._traj_queue.append((it1, it2, speed_dps))
-            prev = (t1, t2)
+        # 总角位移 (取较大轴)
+        d1 = abs(t1e - t1s); d2 = abs(t2e - t2s)
+        d_total = max(d1, d2)
+        if d_total < 0.5: self._log("位移太小"); return
 
-        self._log(f"轨迹: {len(self._traj_queue)}个点, 速度{speed_dps}°/s")
-        self.tprog.setValue(0)
+        # 梯形参数: 时间
+        t_acc = v_max / accel
+        t_dec = v_max / decel
+        d_acc = 0.5 * accel * t_acc * t_acc
+        d_dec = 0.5 * decel * t_dec * t_dec
+
+        if d_acc + d_dec > d_total:
+            # 三角形: 无匀速段
+            r = math.sqrt(d_total / (d_acc + d_dec))
+            t_acc *= r; t_dec *= r
+            t_const = 0
+        else:
+            t_const = (d_total - d_acc - d_dec) / v_max
+
+        dt = 0.1  # 100ms 控制周期
+        total_steps = int((t_acc + t_const + t_dec) / dt) + 1
+
+        # 生成速度序列 (O 速度1 速度2)
+        def speed_at(t):
+            if t < t_acc:
+                v = accel * t
+                return (v * d1/d_total if d_total else 0) * (1 if t1e > t1s else -1), \
+                       (v * d2/d_total if d_total else 0) * (1 if t2e > t2s else -1)
+            elif t < t_acc + t_const:
+                return (v_max * d1/d_total) * (1 if t1e > t1s else -1), \
+                       (v_max * d2/d_total) * (1 if t2e > t2s else -1)
+            else:
+                td = t - t_acc - t_const
+                v = v_max - decel * td
+                return (v * d1/d_total if d_total else 0) * (1 if t1e > t1s else -1), \
+                       (v * d2/d_total if d_total else 0) * (1 if t2e > t2s else -1)
+
+        schedule = []
+        for i in range(total_steps):
+            t = i * dt
+            if t > t_acc + t_const + t_dec: break
+            s1, s2 = speed_at(t)
+            schedule.append((int(s1), int(s2), int(dt * 1000)))
+
+        self.canvas.set_traj([(x1, y1), (x2, y2)])
+        self._log(f"O轨迹: {len(schedule)}步, {v_max}°/s, {accel}/{decel}°/s², {d_total:.0f}°")
+
+        # 逐段执行
         self._traj_running = True
-        self._send_next_traj()
+        self.tprog.setValue(0)
+        self._traj_schedule = schedule
+        self._traj_idx = 0
+        self._exec_next_o()
 
-    def _send_next_traj(self):
-        """发送轨迹队列中的下一个点"""
-        if not self._traj_queue:
+    def _exec_next_o(self):
+        """发送下一条 O 指令"""
+        if self._traj_idx >= len(self._traj_schedule):
+            self._cmd("O 0 0")
             self._traj_running = False
             self.tprog.setValue(100)
             self.tstat.setText("✓ 完成")
-            self._log("✓ 轨迹执行完成")
+            self._log("✓ O轨迹完成")
             return
-
-        t1, t2, spd = self._traj_queue.pop(0)
-        done = self.tprog.maximum() - len(self._traj_queue)
-        total = self.tprog.maximum()
-        self.tprog.setValue(int(done / total * 100) if total > 0 else 0)
-        self.tstat.setText(f"发送 {done}/{total}")
-
-        cmd = f"A {t1} {t2} {spd}"
-        if self.serial.connected:
-            self._log(f"→ {cmd}")
-            self.serial.send((cmd + "\r\n").encode())
+        s1, s2, delay_ms = self._traj_schedule[self._traj_idx]
+        self._traj_idx += 1
+        self._cmd(f"O {s1} {s2}")
+        self.tprog.setValue(int(self._traj_idx / len(self._traj_schedule) * 100))
+        QTimer.singleShot(delay_ms, self._exec_next_o)
 
     def closeEvent(self, e):
         if self.serial.connected: self.serial.disconnect()
