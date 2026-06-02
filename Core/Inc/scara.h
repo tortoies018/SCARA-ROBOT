@@ -7,7 +7,7 @@
 
 /* ======================== 机械参数 ======================== */
 #define STEPS_PER_REV          200     /* 步进电机每圈步数 */
-#define MICROSTEPS             8       /* DM542 细分 */
+#define MICROSTEPS             16       /* DM542 细分 */
 #define STEPS_PER_MOTOR_REV    (STEPS_PER_REV * MICROSTEPS)  /* 电机轴每圈脉冲 */
 #define PULLEY_RATIO           1       /* 直连 (无同步带) */
 #define STEPS_PER_JOINT_REV    (STEPS_PER_MOTOR_REV * PULLEY_RATIO)  /* 关节每圈脉冲 */
@@ -86,7 +86,8 @@ typedef struct
     uint8_t home_m1_done;       /* 电机1回零完成标志 */
     uint8_t home_m2_done;       /* 电机2回零完成标志 */
     uint8_t home_approach_phase;/* 回零阶段 */
-    uint32_t speed_dps;         /* 默认速度 (°/s) */
+    uint32_t speed1_dps;        /* 电机1默认速度 (°/s) */
+    uint32_t speed2_dps;        /* 电机2默认速度 (°/s) */
     volatile uint8_t rdy_pending; /* RDY 待发送标志 */
 } SCARA_Context;
 
@@ -103,15 +104,16 @@ void motor_stop(MotorAxis *axis);
 void SCARA_MoveRelative(int32_t d1, int32_t d2, uint32_t speed);
 void SCARA_MoveAbsolute(int32_t s1, int32_t s2, uint32_t speed);
 void SCARA_Stop(void);
-void SCARA_StartContinuous(int32_t steps1, int32_t steps2, uint32_t speed_hz);
+void SCARA_StartContinuous(int32_t steps1, int32_t steps2, uint32_t speed_hz1, uint32_t speed_hz2);
 void SCARA_StopContinuous(void);
 uint8_t SCARA_IsBusy(void);
 
 /* ======================== 位置查询 ======================== */
 void SCARA_GetPosition(int32_t *s1, int32_t *s2);
 void SCARA_SetPosition(int32_t s1, int32_t s2);
-void SCARA_SetSpeed(uint32_t spd);
-uint32_t SCARA_GetSpeed(void);
+void SCARA_SetSpeed(uint32_t spd1, uint32_t spd2);
+uint32_t SCARA_GetSpeed1(void);
+uint32_t SCARA_GetSpeed2(void);
 
 /* ======================== 回零 ======================== */
 void SCARA_Home(void);

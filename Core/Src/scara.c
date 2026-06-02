@@ -107,7 +107,8 @@ void SCARA_Init(void)
     scara.motor2.channel = TIM_CHANNEL_1;
     scara.state = ROBOT_IDLE;
     scara.pen = PEN_UP;
-    scara.speed_dps = DEFAULT_SPEED_DPS;
+    scara.speed1_dps = DEFAULT_SPEED_DPS;
+    scara.speed2_dps = DEFAULT_SPEED_DPS;
     scara.motor1.current_position = DEG_TO_STEPS(90);
     scara.motor2.current_position = DEG_TO_STEPS(90);
 
@@ -182,7 +183,7 @@ void SCARA_MoveRelative(int32_t d1, int32_t d2, uint32_t speed)
         return;
     }
 
-    if (speed == 0) speed = DEGS_TO_HZ(scara.speed_dps);
+    if (speed == 0) speed = DEGS_TO_HZ((scara.speed1_dps + scara.speed2_dps) / 2);
     if (speed < MIN_SPEED_HZ) speed = MIN_SPEED_HZ;
     if (speed > MAX_SPEED_HZ) speed = MAX_SPEED_HZ;
 
@@ -222,24 +223,19 @@ void SCARA_Stop(void)
     SCARA_SendResponse("OK STOP\r\n");
 }
 
-/* 连续脉冲模式: 以给定速度和方向持续输出脉冲 */
-void SCARA_StartContinuous(int32_t steps1, int32_t steps2, uint32_t speed_hz)
+/* 连续脉冲模式: 两电机独立速度, 方向由 steps 符号决定 */
+void SCARA_StartContinuous(int32_t steps1, int32_t steps2, uint32_t speed_hz1, uint32_t speed_hz2)
 {
-    if (speed_hz > MAX_SPEED_HZ) speed_hz = MAX_SPEED_HZ;
-
-    int32_t a1 = steps1 > 0 ? steps1 : -steps1;
-    int32_t a2 = steps2 > 0 ? steps2 : -steps2;
-    uint32_t max_steps = a1 > a2 ? (uint32_t)a1 : (uint32_t)a2;
-    if (max_steps < 100) max_steps = 100;
-
-    uint32_t s1 = (uint32_t)((uint64_t)a1 * speed_hz / max_steps);
-    uint32_t s2 = (uint32_t)((uint64_t)a2 * speed_hz / max_steps);
-    if (s1 < 50) s1 = 50;
-    if (s2 < 50) s2 = 50;
+    if (speed_hz1 == 0) speed_hz1 = DEGS_TO_HZ(scara.speed1_dps);
+    if (speed_hz2 == 0) speed_hz2 = DEGS_TO_HZ(scara.speed2_dps);
+    if (speed_hz1 < MIN_SPEED_HZ) speed_hz1 = MIN_SPEED_HZ;
+    if (speed_hz1 > MAX_SPEED_HZ) speed_hz1 = MAX_SPEED_HZ;
+    if (speed_hz2 < MIN_SPEED_HZ) speed_hz2 = MIN_SPEED_HZ;
+    if (speed_hz2 > MAX_SPEED_HZ) speed_hz2 = MAX_SPEED_HZ;
 
     scara.state = ROBOT_MOVING;
-    motor_start(&scara.motor1, steps1, s1);
-    motor_start(&scara.motor2, steps2, s2);
+    motor_start(&scara.motor1, steps1, speed_hz1);
+    motor_start(&scara.motor2, steps2, speed_hz2);
     SCARA_SendResponse("OK PULSE\r\n");
 }
 
@@ -257,16 +253,24 @@ uint8_t SCARA_IsBusy(void)
 }
 
 /* ==================== 速度设置 ==================== */
-void SCARA_SetSpeed(uint32_t spd)
+void SCARA_SetSpeed(uint32_t spd1, uint32_t spd2)
 {
-    if (spd < MIN_SPEED_DPS) spd = MIN_SPEED_DPS;
-    if (spd > MAX_SPEED_DPS) spd = MAX_SPEED_DPS;
-    scara.speed_dps = spd;
+    if (spd1 < MIN_SPEED_DPS) spd1 = MIN_SPEED_DPS;
+    if (spd1 > MAX_SPEED_DPS) spd1 = MAX_SPEED_DPS;
+    if (spd2 < MIN_SPEED_DPS) spd2 = MIN_SPEED_DPS;
+    if (spd2 > MAX_SPEED_DPS) spd2 = MAX_SPEED_DPS;
+    scara.speed1_dps = spd1;
+    scara.speed2_dps = spd2;
 }
 
-uint32_t SCARA_GetSpeed(void)
+uint32_t SCARA_GetSpeed1(void)
 {
-    return scara.speed_dps;
+    return scara.speed1_dps;
+}
+
+uint32_t SCARA_GetSpeed2(void)
+{
+    return scara.speed2_dps;
 }
 
 /* ==================== 位置查询 ==================== */

@@ -379,7 +379,7 @@ class MainW(QMainWindow):
         self._log(f"系统: {msg}")
         if ok:
             QTimer.singleShot(100, lambda: self._cmd("E 1"))
-            QTimer.singleShot(200, lambda: self._cmd("V 2000"))
+            QTimer.singleShot(200, lambda: self._cmd("V 90 90"))
 
     def _on_data(self, data: bytes):
         try:
@@ -455,11 +455,10 @@ class MainW(QMainWindow):
         self._log(f"直线预览: ({x1:.0f},{y1:.0f})→({x2:.0f},{y2:.0f}) 步长{step}mm → {len(pts)}点")
 
     def _pulse(self, dir1: int, dir2: int):
-        """连续脉冲"""
+        """连续脉冲: O 速度1 速度2 (符号=方向)"""
         if not self.serial.connected: self._log("未连接"); return
         spd = int(self.p_spd.value())
-        a1 = 10000 * dir1; a2 = 10000 * dir2
-        self._cmd(f"O {a1} {a2} {spd}")
+        self._cmd(f"O {spd * dir1} {spd * dir2}")
 
     def _clear_traj(self):
         self.canvas.clear_traj()

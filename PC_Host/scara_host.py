@@ -195,7 +195,7 @@ class MainW(QMainWindow):
         self.st.setStyleSheet(f"color:#{'a6e3a1' if ok else '6c7086'}")
         self._lg(f"系统: {msg}")
         if ok:
-            QTimer.singleShot(100, lambda: self.serial.send(b"V 2000\r\n"))
+            QTimer.singleShot(100, lambda: self.serial.send(b"V 90 90\r\n"))
 
     def _on_data(self, data: bytes):
         try:
