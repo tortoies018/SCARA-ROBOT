@@ -1,19 +1,33 @@
 #include "scara.h"
 #include "usart.h"
+#include <string.h>
+
+/* ==================== DMA 收发缓冲区 ==================== */
+#define DMA_RX_BUF_SIZE 64
+#define DMA_TX_BUF_SIZE 128
+
+static uint8_t dma_rx_buf[DMA_RX_BUF_SIZE];          /* DMA 接收缓冲区 */
+static uint8_t dma_tx_buf[DMA_TX_BUF_SIZE];           /* DMA 发送缓冲区 */
+static volatile uint8_t tx_busy = 0;                   /* DMA 发送忙标志 */
 
 /* ==================== 环形 FIFO 缓冲区 ==================== */
-static uint8_t uart_rx_byte;                    /* UART 单字节接收缓冲 */
-static volatile uint8_t rx_fifo[RX_FIFO_SIZE];  /* 接收 FIFO */
-static volatile uint16_t fifo_head = 0;          /* FIFO 写指针 */
-static volatile uint16_t fifo_tail = 0;          /* FIFO 读指针 */
+static volatile uint8_t rx_fifo[RX_FIFO_SIZE];
+static volatile uint16_t fifo_head = 0;
+static volatile uint16_t fifo_tail = 0;
 
-static char line_buf[SERIAL_BUF_SIZE];          /* 命令行积累缓冲 */
-static volatile uint16_t line_idx = 0;           /* 命令行指针 */
+static char line_buf[SERIAL_BUF_SIZE];
+static volatile uint16_t line_idx = 0;
 
-/* ==================== UART 发送 ==================== */
+/* ==================== UART 发送 (DMA) ==================== */
 static void uart_send(const char *data, uint16_t len)
 {
-    HAL_UART_Transmit(&huart1, (uint8_t*)data, len, HAL_MAX_DELAY);
+    if (len == 0) return;
+    if (len > DMA_TX_BUF_SIZE) len = DMA_TX_BUF_SIZE;
+
+    while (tx_busy) { }                      /* 等待上次发送完成 */
+    memcpy(dma_tx_buf, data, len);            /* 复制到静态缓冲区 */
+    tx_busy = 1;
+    HAL_UART_Transmit_DMA(&huart1, dma_tx_buf, len);
 }
 
 /* ==================== 响应发送 ==================== */
@@ -22,14 +36,14 @@ void SCARA_SendResponse(const char *str)
     if (str) uart_send(str, (uint16_t)strlen(str));
 }
 
-/* ==================== UART 接收初始化 ==================== */
+/* ==================== UART 接收初始化 (DMA + IDLE) ==================== */
 void SCARA_UART_InitRx(void)
 {
-    HAL_UART_Receive_IT(&huart1, &uart_rx_byte, 1);
+    HAL_UARTEx_ReceiveToIdle_DMA(&huart1, dma_rx_buf, DMA_RX_BUF_SIZE);
 }
 
-/* ==================== UART 接收回调 (ISR 中调用) ==================== */
-/* 将 UART 接收到的字节压入环形 FIFO，永不丢失 */
+/* ==================== UART 接收回调 (ISR) ==================== */
+/* DMA + IDLE 检测: 串口空闲时触发, 将收到的字节压入 FIFO */
 void SCARA_UART_RxCallback(uint8_t byte)
 {
     uint16_t next = (fifo_head + 1) % RX_FIFO_SIZE;
@@ -73,7 +87,6 @@ static void process_command(const char *cmd)
         SCARA_PenDown();
         SCARA_SendResponse("OK\r\n");
     }
-    /* M 指令: 相对移动，参数为 角度1 角度2 速度(°/s) */
     else if (cmd[0] == 'M')
     {
         const char *p = cmd + 1;
@@ -85,7 +98,6 @@ static void process_command(const char *cmd)
         uint32_t speed_hz = DEGS_TO_HZ(spd);
         SCARA_MoveRelative(d1, d2, speed_hz);
     }
-    /* A 指令: 绝对移动，参数为 角度1 角度2 速度(°/s) */
     else if (cmd[0] == 'A')
     {
         const char *p = cmd + 1;
@@ -97,7 +109,6 @@ static void process_command(const char *cmd)
         uint32_t speed_hz = DEGS_TO_HZ(spd);
         SCARA_MoveAbsolute(s1, s2, speed_hz);
     }
-    /* Q 指令: 查询位置和状态 */
     else if (strcmp(cmd, "Q") == 0 || strcmp(cmd, "STATUS") == 0)
     {
         char buf[64];
@@ -106,12 +117,10 @@ static void process_command(const char *cmd)
             SCARA_IsBusy() ? "BSY" : "RDY");
         if (n > 0) uart_send(buf, (uint16_t)(n > 63 ? 63 : n));
     }
-    /* ! 指令: 紧急停止 */
     else if (strcmp(cmd, "!") == 0 || strcmp(cmd, "STOP") == 0)
     {
         SCARA_Stop();
     }
-    /* SP 指令: 设置当前位置 (步数) */
     else if (cmd[0] == 'S' && cmd[1] == 'P')
     {
         const char *p = cmd + 2;
@@ -120,7 +129,6 @@ static void process_command(const char *cmd)
         SCARA_SetPosition(s1, s2);
         SCARA_SendResponse("OK\r\n");
     }
-    /* V 指令: 设置默认速度 */
     else if (cmd[0] == 'V')
     {
         const char *p = cmd + 1;
@@ -128,7 +136,6 @@ static void process_command(const char *cmd)
         SCARA_SetSpeed(speed);
         SCARA_SendResponse("OK SPEED\r\n");
     }
-    /* E 指令: 电机使能 E 1=使能 / E 0=禁能 */
     else if (cmd[0] == 'E')
     {
         const char *p = cmd + 1;
@@ -143,7 +150,6 @@ static void process_command(const char *cmd)
 }
 
 /* ==================== 串口处理 (主循环调用) ==================== */
-/* 从 FIFO 取出字节，按 \r/\n 切分为命令行，依次处理 */
 uint8_t SCARA_ProcessSerial(void)
 {
     uint8_t processed = 0;
@@ -170,12 +176,22 @@ uint8_t SCARA_ProcessSerial(void)
     return processed;
 }
 
-/* ==================== HAL UART 接收完成回调 ==================== */
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+/* ==================== HAL DMA 回调 ==================== */
+
+/* DMA + IDLE 接收完成: 收到一帧数据后自动调用 */
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
     if (huart->Instance == USART1)
     {
-        SCARA_UART_RxCallback(uart_rx_byte);
-        HAL_UART_Receive_IT(&huart1, &uart_rx_byte, 1);
+        for (uint16_t i = 0; i < Size; i++)
+            SCARA_UART_RxCallback(dma_rx_buf[i]);
+        HAL_UARTEx_ReceiveToIdle_DMA(&huart1, dma_rx_buf, DMA_RX_BUF_SIZE);
     }
+}
+
+/* DMA 发送完成回调: 释放发送忙标志 */
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART1)
+        tx_busy = 0;
 }

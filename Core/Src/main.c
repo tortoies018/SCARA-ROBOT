@@ -181,7 +181,6 @@ int main(void)
             SCARA_SendResponse("ER HOME TIMEOUT\r\n");
         }
     }
-  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
