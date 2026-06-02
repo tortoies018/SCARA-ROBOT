@@ -522,27 +522,28 @@ class MainW(QMainWindow):
         dt = 0.1  # 100ms 控制周期
         total_steps = int((t_acc + t_const + t_dec) / dt) + 1
 
-        # 生成速度序列 (O 速度1 速度2)
-        def speed_at(t):
-            if t < t_acc:
-                v = accel * t
-                return (v * d1/d_total if d_total else 0) * (1 if t1e > t1s else -1), \
-                       (v * d2/d_total if d_total else 0) * (1 if t2e > t2s else -1)
-            elif t < t_acc + t_const:
-                return (v_max * d1/d_total) * (1 if t1e > t1s else -1), \
-                       (v_max * d2/d_total) * (1 if t2e > t2s else -1)
-            else:
-                td = t - t_acc - t_const
-                v = v_max - decel * td
-                return (v * d1/d_total if d_total else 0) * (1 if t1e > t1s else -1), \
-                       (v * d2/d_total if d_total else 0) * (1 if t2e > t2s else -1)
-
+        # 生成速度序列, 跳过速度为 0 的段
         schedule = []
+        min_speed = 1  # 最低有效速度 °/s
         for i in range(total_steps):
             t = i * dt
             if t > t_acc + t_const + t_dec: break
-            s1, s2 = speed_at(t)
-            schedule.append((int(s1), int(s2), int(dt * 1000)))
+            v = accel * t if t < t_acc else (
+                v_max if t < t_acc + t_const else max(0, v_max - decel * (t - t_acc - t_const)))
+            s1 = round(v * d1 / d_total) * (1 if t1e > t1s else -1) if d_total else 0
+            s2 = round(v * d2 / d_total) * (1 if t2e > t2s else -1) if d_total else 0
+            if s1 == 0 and s2 == 0:
+                if v > 0:
+                    # 速度 >0 但取整为 0 → 补最小速度
+                    s1 = 1 * (1 if t1e > t1s else -1) if d1 > 0 else 0
+                    s2 = 1 * (1 if t2e > t2s else -1) if d2 > 0 else 0
+                else:
+                    continue  # 跳过零速段
+            schedule.append((s1, s2, int(dt * 1000)))
+
+        # 末尾补一个停止
+        if schedule and (schedule[-1][0] != 0 or schedule[-1][1] != 0):
+            schedule.append((0, 0, int(dt * 1000)))
 
         self.canvas.set_traj([(x1, y1), (x2, y2)])
         self._log(f"O轨迹: {len(schedule)}步, {v_max}°/s, {accel}/{decel}°/s², {d_total:.0f}°")
@@ -557,7 +558,6 @@ class MainW(QMainWindow):
     def _exec_next_o(self):
         """发送下一条 O 指令"""
         if self._traj_idx >= len(self._traj_schedule):
-            self._cmd("O 0 0")
             self._traj_running = False
             self.tprog.setValue(100)
             self.tstat.setText("✓ 完成")
@@ -565,8 +565,17 @@ class MainW(QMainWindow):
             return
         s1, s2, delay_ms = self._traj_schedule[self._traj_idx]
         self._traj_idx += 1
+        # 最后一段 (O 0 0) 不用定时, 直接完成
+        if s1 == 0 and s2 == 0 and self._traj_idx >= len(self._traj_schedule):
+            self._cmd("O 0 0")
+            self._traj_running = False
+            self.tprog.setValue(100)
+            self.tstat.setText("✓ 完成")
+            self._log("✓ O轨迹完成")
+            return
         self._cmd(f"O {s1} {s2}")
         self.tprog.setValue(int(self._traj_idx / len(self._traj_schedule) * 100))
+        self.tstat.setText(f"{self._traj_idx}/{len(self._traj_schedule)}")
         QTimer.singleShot(delay_ms, self._exec_next_o)
 
     def closeEvent(self, e):

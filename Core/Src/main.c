@@ -108,7 +108,14 @@ int main(void)
     if (scara.rdy_pending)
     {
         scara.rdy_pending = 0;
-        SCARA_SendResponse("RDY\r\n");
+        char buf[48];
+        int n = snprintf(buf, sizeof(buf), "RDY %ld %ld %ld %ld\r\n",
+            scara.motor1.current_position, scara.motor2.current_position,
+            (int32_t)((int64_t)scara.motor1.current_position * 360 / STEPS_PER_JOINT_REV),
+            (int32_t)((int64_t)scara.motor2.current_position * 360 / STEPS_PER_JOINT_REV));
+        if (n > 0) {
+            SCARA_SendResponse(buf);
+        }
     }
 
     /* 回零状态机：2段式光电寻零 */
