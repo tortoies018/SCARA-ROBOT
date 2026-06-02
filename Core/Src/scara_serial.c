@@ -144,19 +144,24 @@ static void process_command(const char *cmd)
         if (val != 0) { SCARA_EnableMotors(); SCARA_SendResponse("OK ENABLED\r\n"); }
         else          { SCARA_DisableMotors(); SCARA_SendResponse("OK DISABLED\r\n"); }
     }
-    /* O 指令: 连续脉冲 O 速度1(°/s) 速度2(°/s), 符号=方向 */
+    /* O 指令: 连续脉冲 O 速度1(°/s) 速度2(°/s), 符号=方向, 0=停止该电机 */
     else if (cmd[0] == 'O')
     {
         const char *p = cmd + 1;
         int32_t spd1 = parse_int(&p);
         int32_t spd2 = parse_int(&p);
-        int32_t dir1 = spd1 >= 0 ? 1 : -1;
-        int32_t dir2 = spd2 >= 0 ? 1 : -1;
+        if (spd1 == 0 && spd2 == 0)
+        {
+            SCARA_StopContinuous();
+            return;
+        }
+        int32_t d1 = spd1 > 0 ? 10000000 : (spd1 < 0 ? -10000000 : 0);
+        int32_t d2 = spd2 > 0 ? 10000000 : (spd2 < 0 ? -10000000 : 0);
         uint32_t hz1 = DEGS_TO_HZ((uint32_t)(spd1 >= 0 ? spd1 : -spd1));
         uint32_t hz2 = DEGS_TO_HZ((uint32_t)(spd2 >= 0 ? spd2 : -spd2));
-        /* 行程 = 10M 步, 约等效于连续 */
-        int32_t d1 = dir1 * 10000000;
-        int32_t d2 = dir2 * 10000000;
+        /* 速度为 0 的电机不启动 */
+        if (d1 == 0) hz1 = 0;
+        if (d2 == 0) hz2 = 0;
         SCARA_StartContinuous(d1, d2, hz1, hz2);
     }
     /* C 指令: 停止连续脉冲 */

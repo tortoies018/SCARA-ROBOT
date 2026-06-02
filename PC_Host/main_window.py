@@ -288,8 +288,10 @@ class MainW(QMainWindow):
 
         # ---- 连续脉冲 ----
         pg = QGroupBox("连续脉冲"); pl = QFormLayout(pg); pl.setSpacing(4)
-        self.p_spd = QDoubleSpinBox(); self.p_spd.setRange(1, 720); self.p_spd.setValue(90); self.p_spd.setSuffix(" °/s")
-        pl.addRow("速度:", self.p_spd)
+        self.p_spd1 = QDoubleSpinBox(); self.p_spd1.setRange(1, 720); self.p_spd1.setValue(90); self.p_spd1.setSuffix(" °/s")
+        self.p_spd2 = QDoubleSpinBox(); self.p_spd2.setRange(1, 720); self.p_spd2.setValue(90); self.p_spd2.setSuffix(" °/s")
+        sr1 = QHBoxLayout(); sr1.addWidget(QLabel("电机1:")); sr1.addWidget(self.p_spd1); sr1.addWidget(QLabel("电机2:")); sr1.addWidget(self.p_spd2)
+        pl.addRow(sr1)
         brp = QHBoxLayout()
         self.p_fwd = QPushButton("正转"); self.p_fwd.clicked.connect(lambda: self._pulse(1, 1))
         self.p_rev = QPushButton("反转"); self.p_rev.clicked.connect(lambda: self._pulse(-1, -1))
@@ -457,8 +459,9 @@ class MainW(QMainWindow):
     def _pulse(self, dir1: int, dir2: int):
         """连续脉冲: O 速度1 速度2 (符号=方向)"""
         if not self.serial.connected: self._log("未连接"); return
-        spd = int(self.p_spd.value())
-        self._cmd(f"O {spd * dir1} {spd * dir2}")
+        s1 = int(self.p_spd1.value()) * dir1
+        s2 = int(self.p_spd2.value()) * dir2
+        self._cmd(f"O {s1} {s2}")
 
     def _clear_traj(self):
         self.canvas.clear_traj()

@@ -226,8 +226,8 @@ void SCARA_Stop(void)
 /* 连续脉冲模式: 两电机独立速度, 方向由 steps 符号决定 */
 void SCARA_StartContinuous(int32_t steps1, int32_t steps2, uint32_t speed_hz1, uint32_t speed_hz2)
 {
-    if (speed_hz1 == 0) speed_hz1 = DEGS_TO_HZ(scara.speed1_dps);
-    if (speed_hz2 == 0) speed_hz2 = DEGS_TO_HZ(scara.speed2_dps);
+    if (speed_hz1 == 0 && steps1 != 0) speed_hz1 = DEGS_TO_HZ(scara.speed1_dps);
+    if (speed_hz2 == 0 && steps2 != 0) speed_hz2 = DEGS_TO_HZ(scara.speed2_dps);
     if (speed_hz1 < MIN_SPEED_HZ) speed_hz1 = MIN_SPEED_HZ;
     if (speed_hz1 > MAX_SPEED_HZ) speed_hz1 = MAX_SPEED_HZ;
     if (speed_hz2 < MIN_SPEED_HZ) speed_hz2 = MIN_SPEED_HZ;
