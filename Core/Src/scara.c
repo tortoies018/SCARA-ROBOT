@@ -53,7 +53,8 @@ void motor_start(MotorAxis *axis, int32_t steps, uint32_t speed_hz)
     }
     else
     {
-        HAL_GPIO_WritePin(DIR2_GPIO_Port, DIR2_Pin, forward ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        //两个电机型号不同，方向定义不同
+        HAL_GPIO_WritePin(DIR2_GPIO_Port, DIR2_Pin, forward ? GPIO_PIN_RESET : GPIO_PIN_SET);
         HAL_GPIO_WritePin(ENA2_GPIO_Port, ENA2_Pin, GPIO_PIN_RESET);
     }
 
