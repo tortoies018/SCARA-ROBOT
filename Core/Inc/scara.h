@@ -31,8 +31,11 @@
 
 /* ======================== 电机 ======================== */
 #define TIMER_CLOCK            72000000UL  /* 定时器时钟 72MHz */
-#define DEFAULT_SPEED          2000        /* 默认速度 (steps/s) */
-#define MIN_SPEED              50          /* 最低步进频率 */
+#define DEFAULT_SPEED_DPS      90          /* 默认速度 (°/s) */
+#define MIN_SPEED_DPS          5           /* 最低速度 (°/s) */
+#define MAX_SPEED_DPS          720         /* 最高速度 (°/s) */
+#define MIN_SPEED_HZ           50          /* 最低步进频率 (Hz) */
+#define MAX_SPEED_HZ           20000       /* 最高步进频率 (Hz) */
 #define MAX_SPEED              20000       /* 最高步进频率 */
 
 /* ======================== 角度/步进换算 ======================== */
@@ -83,7 +86,7 @@ typedef struct
     uint8_t home_m1_done;       /* 电机1回零完成标志 */
     uint8_t home_m2_done;       /* 电机2回零完成标志 */
     uint8_t home_approach_phase;/* 回零阶段 */
-    uint32_t default_speed;     /* 默认速度 (steps/s) */
+    uint32_t speed_dps;         /* 默认速度 (°/s) */
     volatile uint8_t rdy_pending; /* RDY 待发送标志 */
 } SCARA_Context;
 
@@ -100,6 +103,8 @@ void motor_stop(MotorAxis *axis);
 void SCARA_MoveRelative(int32_t d1, int32_t d2, uint32_t speed);
 void SCARA_MoveAbsolute(int32_t s1, int32_t s2, uint32_t speed);
 void SCARA_Stop(void);
+void SCARA_StartContinuous(int32_t steps1, int32_t steps2, uint32_t speed_hz);
+void SCARA_StopContinuous(void);
 uint8_t SCARA_IsBusy(void);
 
 /* ======================== 位置查询 ======================== */

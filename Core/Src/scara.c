@@ -107,7 +107,9 @@ void SCARA_Init(void)
     scara.motor2.channel = TIM_CHANNEL_1;
     scara.state = ROBOT_IDLE;
     scara.pen = PEN_UP;
-    scara.default_speed = DEFAULT_SPEED;
+    scara.speed_dps = DEFAULT_SPEED_DPS;
+    scara.motor1.current_position = DEG_TO_STEPS(90);
+    scara.motor2.current_position = DEG_TO_STEPS(90);
 
     /* 运行时配置 TIM4 → 50Hz 舵机 PWM */
     __HAL_TIM_SET_PRESCALER(&htim4, 1439);
@@ -180,9 +182,9 @@ void SCARA_MoveRelative(int32_t d1, int32_t d2, uint32_t speed)
         return;
     }
 
-    if (speed == 0) speed = scara.default_speed;
-    if (speed < MIN_SPEED) speed = MIN_SPEED;
-    if (speed > MAX_SPEED) speed = MAX_SPEED;
+    if (speed == 0) speed = DEGS_TO_HZ(scara.speed_dps);
+    if (speed < MIN_SPEED_HZ) speed = MIN_SPEED_HZ;
+    if (speed > MAX_SPEED_HZ) speed = MAX_SPEED_HZ;
 
     int32_t a1 = ABS(d1), a2 = ABS(d2);
     uint32_t max_steps = MAX(a1, a2);
@@ -220,9 +222,51 @@ void SCARA_Stop(void)
     SCARA_SendResponse("OK STOP\r\n");
 }
 
+/* 连续脉冲模式: 以给定速度和方向持续输出脉冲 */
+void SCARA_StartContinuous(int32_t steps1, int32_t steps2, uint32_t speed_hz)
+{
+    if (speed_hz > MAX_SPEED_HZ) speed_hz = MAX_SPEED_HZ;
+
+    int32_t a1 = steps1 > 0 ? steps1 : -steps1;
+    int32_t a2 = steps2 > 0 ? steps2 : -steps2;
+    uint32_t max_steps = a1 > a2 ? (uint32_t)a1 : (uint32_t)a2;
+    if (max_steps < 100) max_steps = 100;
+
+    uint32_t s1 = (uint32_t)((uint64_t)a1 * speed_hz / max_steps);
+    uint32_t s2 = (uint32_t)((uint64_t)a2 * speed_hz / max_steps);
+    if (s1 < 50) s1 = 50;
+    if (s2 < 50) s2 = 50;
+
+    scara.state = ROBOT_MOVING;
+    motor_start(&scara.motor1, steps1, s1);
+    motor_start(&scara.motor2, steps2, s2);
+    SCARA_SendResponse("OK PULSE\r\n");
+}
+
+void SCARA_StopContinuous(void)
+{
+    motor_stop(&scara.motor1);
+    motor_stop(&scara.motor2);
+    scara.state = ROBOT_IDLE;
+    SCARA_SendResponse("OK STOP\r\n");
+}
+
 uint8_t SCARA_IsBusy(void)
 {
     return scara.motor1.busy || scara.motor2.busy || scara.state == ROBOT_HOMING;
+}
+
+/* ==================== 速度设置 ==================== */
+void SCARA_SetSpeed(uint32_t spd)
+{
+    if (spd < MIN_SPEED_DPS) spd = MIN_SPEED_DPS;
+    if (spd > MAX_SPEED_DPS) spd = MAX_SPEED_DPS;
+    scara.speed_dps = spd;
+}
+
+uint32_t SCARA_GetSpeed(void)
+{
+    return scara.speed_dps;
 }
 
 /* ==================== 位置查询 ==================== */
@@ -236,18 +280,6 @@ void SCARA_SetPosition(int32_t s1, int32_t s2)
 {
     scara.motor1.current_position = s1;
     scara.motor2.current_position = s2;
-}
-
-void SCARA_SetSpeed(uint32_t spd)
-{
-    if (spd < MIN_SPEED) spd = MIN_SPEED;
-    if (spd > MAX_SPEED) spd = MAX_SPEED;
-    scara.default_speed = spd;
-}
-
-uint32_t SCARA_GetSpeed(void)
-{
-    return scara.default_speed;
 }
 
 /* ==================== 定时器中断回调 ==================== */

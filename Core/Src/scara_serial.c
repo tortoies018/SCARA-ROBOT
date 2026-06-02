@@ -143,6 +143,23 @@ static void process_command(const char *cmd)
         if (val != 0) { SCARA_EnableMotors(); SCARA_SendResponse("OK ENABLED\r\n"); }
         else          { SCARA_DisableMotors(); SCARA_SendResponse("OK DISABLED\r\n"); }
     }
+    /* O 指令: 开始连续脉冲 O 角度1 角度2 速度(°/s), 符号=方向 */
+    else if (cmd[0] == 'O')
+    {
+        const char *p = cmd + 1;
+        int32_t a1 = parse_int(&p);
+        int32_t a2 = parse_int(&p);
+        uint32_t spd = (uint32_t)parse_int(&p);
+        int32_t d1 = DEG_TO_STEPS(a1);
+        int32_t d2 = DEG_TO_STEPS(a2);
+        uint32_t speed_hz = DEGS_TO_HZ(spd);
+        SCARA_StartContinuous(d1, d2, speed_hz);
+    }
+    /* C 指令: 停止连续脉冲 */
+    else if (strcmp(cmd, "C") == 0)
+    {
+        SCARA_StopContinuous();
+    }
     else
     {
         SCARA_SendResponse("ER UNKNOWN\r\n");

@@ -286,6 +286,18 @@ class MainW(QMainWindow):
         self.ikr = QLabel("θ₁: —  θ₂: —"); il.addRow("", self.ikr)
         ll.addWidget(ig)
 
+        # ---- 连续脉冲 ----
+        pg = QGroupBox("连续脉冲"); pl = QFormLayout(pg); pl.setSpacing(4)
+        self.p_spd = QDoubleSpinBox(); self.p_spd.setRange(1, 720); self.p_spd.setValue(90); self.p_spd.setSuffix(" °/s")
+        pl.addRow("速度:", self.p_spd)
+        brp = QHBoxLayout()
+        self.p_fwd = QPushButton("正转"); self.p_fwd.clicked.connect(lambda: self._pulse(1, 1))
+        self.p_rev = QPushButton("反转"); self.p_rev.clicked.connect(lambda: self._pulse(-1, -1))
+        self.p_stop = QPushButton("停止"); self.p_stop.clicked.connect(lambda: self._cmd("C"))
+        brp.addWidget(self.p_fwd); brp.addWidget(self.p_rev); brp.addWidget(self.p_stop)
+        pl.addRow(brp)
+        ll.addWidget(pg)
+
         # ---- 轨迹绘制 ----
         tg = QGroupBox("轨迹绘制")
         tl = QFormLayout(tg); tl.setSpacing(4)
@@ -441,6 +453,13 @@ class MainW(QMainWindow):
         pts = interpolate_line(x1, y1, x2, y2, step)
         self.canvas.set_traj(pts)
         self._log(f"直线预览: ({x1:.0f},{y1:.0f})→({x2:.0f},{y2:.0f}) 步长{step}mm → {len(pts)}点")
+
+    def _pulse(self, dir1: int, dir2: int):
+        """连续脉冲"""
+        if not self.serial.connected: self._log("未连接"); return
+        spd = int(self.p_spd.value())
+        a1 = 10000 * dir1; a2 = 10000 * dir2
+        self._cmd(f"O {a1} {a2} {spd}")
 
     def _clear_traj(self):
         self.canvas.clear_traj()
