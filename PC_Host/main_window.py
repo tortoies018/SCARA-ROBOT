@@ -56,11 +56,15 @@ def inverse_kinematics(x: float, y: float) -> tuple[float, float] | None:
     t2_a = math.degrees(norm_angle(a2 + phi2))
     t2_b = math.degrees(norm_angle(a2 - phi2))
 
-    # 验证两解哪个 FK 闭环正确
+    # 验证各解 FK 闭环, 优选 M1>90° 且 M2<90°
+    best = None; best_score = -999
     for t1, t2 in [(t1_a, t2_a), (t1_b, t2_b), (t1_a, t2_b), (t1_b, t2_a)]:
         ee = forward_kinematics(t1, t2)
         if ee is not None and math.hypot(ee[0]-x, ee[1]-y) < 1:
-            return t1, t2
+            score = (1 if t1 > 90 else -1) + (1 if t2 < 90 else -1)
+            if score > best_score:
+                best_score = score; best = (t1, t2)
+    if best: return best
     return None
 
 def interpolate_line(x1, y1, x2, y2, step_mm):

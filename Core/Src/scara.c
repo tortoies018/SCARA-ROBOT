@@ -48,13 +48,13 @@ void motor_start(MotorAxis *axis, int32_t steps, uint32_t speed_hz)
     /* 设置方向引脚和使能引脚 */
     if (axis->htim->Instance == TIM1)
     {
-        HAL_GPIO_WritePin(DIR1_GPIO_Port, DIR1_Pin, forward ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(DIR1_GPIO_Port, DIR1_Pin, forward ? GPIO_PIN_RESET : GPIO_PIN_SET);
         HAL_GPIO_WritePin(ENA1_GPIO_Port, ENA1_Pin, GPIO_PIN_RESET);  /* DM542: 低电平使能 */
     }
     else
     {
         //两个电机型号不同，方向定义不同
-        HAL_GPIO_WritePin(DIR2_GPIO_Port, DIR2_Pin, forward ? GPIO_PIN_RESET : GPIO_PIN_SET);
+        HAL_GPIO_WritePin(DIR2_GPIO_Port, DIR2_Pin, forward ? GPIO_PIN_SET : GPIO_PIN_RESET);
         HAL_GPIO_WritePin(ENA2_GPIO_Port, ENA2_Pin, GPIO_PIN_RESET);
     }
 
