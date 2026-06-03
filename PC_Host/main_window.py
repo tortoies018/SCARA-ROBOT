@@ -264,6 +264,13 @@ class MainW(QMainWindow):
         el.addWidget(self.en_btn); el.addWidget(self.dis_btn)
         ll.addWidget(eg)
 
+        # ---- 笔控制 ----
+        pg_box = QGroupBox("笔控制"); pgl = QHBoxLayout(pg_box)
+        self.pen_up = QPushButton("✏ 抬笔"); self.pen_up.clicked.connect(lambda: self._cmd("P0"))
+        self.pen_dn = QPushButton("✏ 下笔"); self.pen_dn.clicked.connect(lambda: self._cmd("P1"))
+        pgl.addWidget(self.pen_up); pgl.addWidget(self.pen_dn)
+        ll.addWidget(pg_box)
+
         # 正运动学
         fg = QGroupBox("正运动学"); fl = QFormLayout(fg); fl.setSpacing(6)
         self.fk1 = QDoubleSpinBox(); self.fk1.setRange(-180, 180); self.fk1.setSuffix("°"); self.fk1.setDecimals(1); self.fk1.setValue(90)

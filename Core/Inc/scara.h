@@ -16,8 +16,8 @@
 #define ARM2_LENGTH_MM         220.0f  /* 从动臂 mm */
 
 /* ======================== 舵机 ======================== */
-#define SERVO_UP_CCR           52  /* 抬笔 PWM 占空比 (1.04ms @ 50Hz) */
-#define SERVO_DOWN_CCR         100 /* 下笔 PWM 占空比 (2.00ms @ 50Hz) */
+#define SERVO_UP_CCR           40 /* 抬笔 PWM 占空比 (1.04ms @ 50Hz) */
+#define SERVO_DOWN_CCR         30 /* 下笔 PWM 占空比 (2.00ms @ 50Hz) */
 
 /* ======================== 回零 ======================== */
 #define HOME_SPEED             800     /* 回零搜索速度 (steps/s) */
